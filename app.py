@@ -5,6 +5,7 @@ Run: streamlit run app.py
 
 from __future__ import annotations
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -36,6 +37,35 @@ def pct(x: float, places: int = 1) -> str:
 
 def money(x: float) -> str:
     return f"${x:,.0f}"
+
+
+AXIS = alt.Axis(labelFontSize=11, titleFontSize=12, grid=True, gridOpacity=0.25)
+NAVY, RED, GREEN = "#1f3b57", "#c0392b", "#27ae60"
+
+
+def line(df, x, y, x_title, y_title, colour=NAVY, money_axis=True):
+    """Numeric x axis, sorted properly, no categorical string index."""
+    return alt.Chart(df).mark_line(strokeWidth=2.5, color=colour).encode(
+        x=alt.X(f"{x}:Q", title=x_title, axis=AXIS),
+        y=alt.Y(f"{y}:Q", title=y_title,
+                axis=alt.Axis(format="$,.0f" if money_axis else ",.0f",
+                              labelFontSize=11, titleFontSize=12,
+                              grid=True, gridOpacity=0.25)),
+        tooltip=[alt.Tooltip(f"{x}:Q", title=x_title),
+                 alt.Tooltip(f"{y}:Q", title=y_title,
+                             format="$,.0f" if money_axis else ",.2f")],
+    ).properties(height=320)
+
+
+def bars(df, x, y, x_title, y_title, order=None, colour=NAVY, fmt=",.1f"):
+    enc_x = alt.X(f"{x}:N", title=x_title, axis=alt.Axis(labelAngle=0,
+                  labelFontSize=11, titleFontSize=12), sort=order)
+    return alt.Chart(df).mark_bar(color=colour, cornerRadiusEnd=3).encode(
+        x=enc_x,
+        y=alt.Y(f"{y}:Q", title=y_title, axis=AXIS),
+        tooltip=[alt.Tooltip(f"{x}:N", title=x_title),
+                 alt.Tooltip(f"{y}:Q", title=y_title, format=fmt)],
+    ).properties(height=300)
 
 
 st.title("The House Edge")
@@ -79,12 +109,28 @@ with tabs[0]:
     r = 0.07 / 12
     invested = [monthly * (((1 + r) ** (12 * y) - 1) / r) if y else 0
                 for y in years]
-    st.line_chart(
-        pd.DataFrame({
-            "Invested instead": invested,
-            "Cumulative betting losses": [-cost.annual_loss * y for y in years],
-        }, index=[f"Year {y}" for y in years]),
-        height=320,
+    paths = pd.DataFrame({
+        "Year": np.tile(years, 2),
+        "Balance": list(invested) + [-cost.annual_loss * y for y in years],
+        "Path": ["Invested instead"] * 11 + ["Wagered away"] * 11,
+    })
+    st.altair_chart(
+        alt.Chart(paths).mark_line(strokeWidth=3).encode(
+            x=alt.X("Year:Q", title="Years from now",
+                    axis=alt.Axis(tickCount=11, labelFontSize=11,
+                                  titleFontSize=12, grid=True, gridOpacity=.25)),
+            y=alt.Y("Balance:Q", title="Balance",
+                    axis=alt.Axis(format="$,.0f", labelFontSize=11,
+                                  titleFontSize=12, grid=True, gridOpacity=.25)),
+            color=alt.Color("Path:N", title=None,
+                            scale=alt.Scale(domain=["Invested instead",
+                                                    "Wagered away"],
+                                            range=[GREEN, RED]),
+                            legend=alt.Legend(orient="top-left")),
+            tooltip=[alt.Tooltip("Path:N"), alt.Tooltip("Year:Q"),
+                     alt.Tooltip("Balance:Q", format="$,.0f")],
+        ).properties(height=340),
+        use_container_width=True,
     )
 
     st.caption(
@@ -113,10 +159,14 @@ with tabs[1]:
         hide_index=True, use_container_width=True,
     )
 
-    st.bar_chart(
-        pd.DataFrame({"Operator keeps (%)": [h * 100 for _, h, _ in rows]},
-                     index=[n.replace("Pick'em, ", "") for n, _, _ in rows]),
-        height=300,
+    labels = [n.replace("Pick'em, ", "").replace(" side or total (-110)", "")
+              for n, _, _ in rows]
+    st.altair_chart(
+        bars(pd.DataFrame({"Product": labels,
+                           "Operator keeps": [h * 100 for _, h, _ in rows]}),
+             "Product", "Operator keeps", None, "Share of every dollar (%)",
+             order=labels, colour=RED, fmt=".1f"),
+        use_container_width=True,
     )
 
     st.warning(
@@ -164,9 +214,9 @@ with tabs[2]:
     )
 
     c1, c2, c3 = st.columns(3)
-    roll = c1.number_input("Starting bankroll", value=1000, step=100,
+    roll = c1.number_input("Starting bankroll", value=1000, step=50,
                            min_value=50)
-    per_bet = c2.number_input("Stake per bet", value=50, step=10, min_value=5)
+    per_bet = c2.number_input("Stake per bet", value=50, step=5, min_value=5)
     freq = c3.number_input("Bets per week", 1, 30, 5)
 
     surv_product = st.selectbox("Product", list(PRODUCT_HOLD), index=3,
@@ -185,10 +235,29 @@ with tabs[2]:
         c.metric("Half are broke by",
                  f"week {median_ruin}" if median_ruin else "over 2 years")
 
-        st.area_chart(
-            pd.DataFrame({"Still solvent": surv * 100},
-                         index=[f"Week {w}" for w in weeks]),
-            height=320,
+        curve = pd.DataFrame({"Week": weeks, "Solvent": surv * 100})
+        st.altair_chart(
+            alt.Chart(curve).mark_area(
+                line={"color": NAVY, "strokeWidth": 2.5},
+                color=alt.Gradient(
+                    gradient="linear",
+                    stops=[alt.GradientStop(color="#ffffff", offset=0),
+                           alt.GradientStop(color=NAVY, offset=1)],
+                    x1=1, x2=1, y1=1, y2=0),
+            ).encode(
+                x=alt.X("Week:Q", title="Weeks from the first bet",
+                        scale=alt.Scale(nice=False, domainMin=0),
+                        axis=alt.Axis(labelFontSize=11, titleFontSize=12,
+                                      grid=True, gridOpacity=.25)),
+                y=alt.Y("Solvent:Q", title="Still solvent (%)",
+                        scale=alt.Scale(domain=[0, 100]),
+                        axis=alt.Axis(labelFontSize=11, titleFontSize=12,
+                                      grid=True, gridOpacity=.25)),
+                tooltip=[alt.Tooltip("Week:Q"),
+                         alt.Tooltip("Solvent:Q", format=".1f",
+                                     title="Still solvent %")],
+            ).properties(height=340),
+            use_container_width=True,
         )
         if median_ruin:
             st.error(
@@ -318,9 +387,13 @@ with tabs[4]:
                     f"that."
                 )
 
-            st.line_chart(
-                pd.DataFrame({"Cumulative profit": summary.bankroll_curve}),
-                height=280,
+            st.altair_chart(
+                line(pd.DataFrame({
+                        "Bet": np.arange(len(summary.bankroll_curve)),
+                        "Profit": summary.bankroll_curve}),
+                     "Bet", "Profit", "Bets placed", "Cumulative profit",
+                     colour=GREEN if summary.net_profit > 0 else RED),
+                use_container_width=True,
             )
 
             st.markdown("**What luck alone produces**")
@@ -333,11 +406,24 @@ with tabs[4]:
             y.metric("Looked statistically real",
                      f"{spurious / len(trials):.0%}")
             z.metric("Actual skill involved", "None")
-            counts, edges = np.histogram(rois * 100, bins=28)
-            st.bar_chart(
-                pd.DataFrame({"Bettors with zero edge": counts},
-                             index=[f"{e:+.0f}%" for e in edges[:-1]]),
-                height=240,
+            counts, edges = np.histogram(rois * 100, bins=24)
+            centres = (edges[:-1] + edges[1:]) / 2
+            width = float(edges[1] - edges[0])
+            hist = pd.DataFrame({"ROI": centres, "Bettors": counts})
+            st.altair_chart(
+                alt.Chart(hist).mark_bar(size=max(6, int(320 / len(centres))),
+                                         color=NAVY, opacity=.85).encode(
+                    x=alt.X("ROI:Q", title="Realised ROI (%)",
+                            axis=alt.Axis(format="+.0f", labelFontSize=11,
+                                          titleFontSize=12, grid=False)),
+                    y=alt.Y("Bettors:Q", title="Bettors with no edge",
+                            axis=alt.Axis(labelFontSize=11, titleFontSize=12,
+                                          grid=True, gridOpacity=.25)),
+                    tooltip=[alt.Tooltip("ROI:Q", format="+.1f",
+                                         title="ROI %"),
+                             alt.Tooltip("Bettors:Q")],
+                ).properties(height=260),
+                use_container_width=True,
             )
             st.caption(
                 f"150 simulated bettors with no edge whatsoever, each playing "
