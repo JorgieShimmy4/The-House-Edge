@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from statistics import NormalDist
 
 import numpy as np
 
@@ -77,8 +78,62 @@ def roi_confidence_interval(observed_roi: float, bet_std_dev: float,
     """
     if n_bets <= 1:
         raise ValueError("Need more than one bet")
-    z = {0.90: 1.645, 0.95: 1.960, 0.99: 2.576}.get(confidence)
-    if z is None:
-        raise ValueError("Supported confidence levels: 0.90, 0.95, 0.99")
-    margin = z * bet_std_dev / (n_bets ** 0.5)
+    margin = z_score(confidence) * bet_std_dev / (n_bets ** 0.5)
     return observed_roi - margin, observed_roi + margin
+
+
+def z_score(confidence: float) -> float:
+    """Two-sided critical value: 0.95 -> 1.960, 0.99 -> 2.576."""
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("Confidence must be between 0 and 1")
+    return NormalDist().inv_cdf(0.5 + confidence / 2.0)
+
+
+@dataclass(frozen=True)
+class CoverageResult:
+    confidence: float
+    n_bets: int
+    true_roi: float
+    observed_roi: np.ndarray
+    low: np.ndarray
+    high: np.ndarray
+    covers: np.ndarray
+    excludes_zero: np.ndarray
+
+    @property
+    def coverage(self) -> float:
+        return float(self.covers.mean())
+
+
+def interval_coverage(probability: float, decimal_odds: float, n_bets: int,
+                      confidence: float = 0.95, n_bettors: int = 100,
+                      seed: int | None = None) -> CoverageResult:
+    """Give many bettors the same true edge and build each one's interval.
+
+    Every bettor plays n_bets at the same price with the same true win
+    probability, so they share one true ROI. Each computes a normal
+    interval from their own record using their own sample standard
+    deviation, exactly as they would in real life. The share of intervals
+    that contain the true ROI should land near the confidence level.
+    """
+    if n_bets <= 1 or n_bettors <= 0:
+        raise ValueError("Need more than one bet and at least one bettor")
+    if not 0.0 < probability < 1.0:
+        raise ValueError("Probability must be between 0 and 1")
+    z = z_score(confidence)
+    b = decimal_odds - 1.0
+    true_roi = probability * b - (1.0 - probability)
+
+    rng = np.random.default_rng(seed)
+    wins = rng.random((n_bettors, n_bets)) < probability
+    returns = np.where(wins, b, -1.0)
+    roi = returns.mean(axis=1)
+    margin = z * returns.std(axis=1, ddof=1) / np.sqrt(n_bets)
+    low, high = roi - margin, roi + margin
+
+    return CoverageResult(
+        confidence=confidence, n_bets=n_bets, true_roi=true_roi,
+        observed_roi=roi, low=low, high=high,
+        covers=(low <= true_roi) & (true_roi <= high),
+        excludes_zero=(low > 0) | (high < 0),
+    )

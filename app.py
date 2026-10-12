@@ -11,7 +11,8 @@ import pandas as pd
 import streamlit as st
 
 from betting import (american_to_decimal, analyse_bet, analyse_parlay, hold,
-                     pickem_table, remove_vig, simulate_bankroll)
+                     interval_coverage, pickem_table, remove_vig,
+                     simulate_bankroll, z_score)
 from betting.cost import (PRODUCT_HOLD, compare_products, habit_cost,
                           invested_value, survival_curve)
 from betting.ledger import parse_history, sample_history, summarise
@@ -85,7 +86,8 @@ st.write(
 )
 
 tabs = st.tabs(["What it costs you", "The products", "How long you last",
-                "Check a line", "Your record", "Method"])
+                "Check a line", "Your record", "Confidence intervals",
+                "Method"])
 
 # ------------------------------------------------------- what it costs you
 with tabs[0]:
@@ -450,8 +452,158 @@ with tabs[4]:
                 f"invisible."
             )
 
-# ------------------------------------------------------------------ method
+# ---------------------------------------------------- confidence intervals
 with tabs[5]:
+    st.subheader("What a confidence interval actually says")
+    st.write(
+        "A record is a sample, and an interval is the range of true ROIs that "
+        "sample is consistent with. Below, 100 bettors share the exact same "
+        "true edge. Each builds an interval from their own results, the way "
+        "you would from yours."
+    )
+
+    LEVELS = {"80%": 0.80, "90%": 0.90, "95%": 0.95, "98%": 0.98,
+              "99%": 0.99, "99.9%": 0.999}
+    c1, c2, c3 = st.columns(3)
+    level_label = c1.select_slider("Confidence level", list(LEVELS),
+                                   value="95%")
+    level = LEVELS[level_label]
+    n_ci = c2.slider("Bets per bettor", 25, 2000, 200, 25)
+    p_true = c3.slider("True win rate at -110", 0.45, 0.60, 0.50, 0.005,
+                       format="%.3f")
+
+    if "ci_seed" not in st.session_state:
+        st.session_state.ci_seed = 8
+    if st.button("Draw 100 new bettors"):
+        st.session_state.ci_seed += 1
+
+    dec = american_to_decimal(-110)
+    cov = interval_coverage(p_true, dec, n_ci, confidence=level,
+                            n_bettors=100, seed=st.session_state.ci_seed)
+    sigma = analyse_bet(p_true, decimal=dec).std_dev
+    z = z_score(level)
+    half = z * sigma / np.sqrt(n_ci)
+    caught = int(cov.covers.sum())
+    above_zero = int((cov.low > 0).sum())
+
+    a, b, c, d = st.columns(4)
+    a.metric("Caught the true ROI", f"{caught} of 100",
+             (f"{caught - level * 100:+.0f} vs expected"
+              if round(caught - level * 100) else None), delta_color="off")
+    b.metric("Interval width", f"±{half:.1%}")
+    c.metric("Multiplier (z)", f"{z:.3f}")
+    d.metric("Look like proven winners", f"{above_zero} of 100")
+
+    order = np.argsort(cov.observed_roi)
+    MISS, HIT = "Missed the truth", "Caught the truth"
+    ci_df = pd.DataFrame({
+        "Bettor": np.arange(100),
+        "ROI": cov.observed_roi[order] * 100,
+        "Low": cov.low[order] * 100,
+        "High": cov.high[order] * 100,
+        "Result": np.where(cov.covers[order], HIT, MISS),
+    })
+    colour = alt.Color("Result:N", title=None,
+                       scale=alt.Scale(domain=[HIT, MISS], range=[NAVY, RED]),
+                       legend=alt.Legend(orient="top-left", labelFontSize=12))
+    y_enc = alt.Y("Bettor:O", title="100 bettors, sorted by result",
+                  axis=alt.Axis(labels=False, ticks=False, domain=False,
+                                titleFontSize=12))
+    tip = [alt.Tooltip("ROI:Q", format="+.1f", title="Their ROI %"),
+           alt.Tooltip("Low:Q", format="+.1f", title="Interval from %"),
+           alt.Tooltip("High:Q", format="+.1f", title="to %"),
+           alt.Tooltip("Result:N", title=" ")]
+    whiskers = alt.Chart(ci_df).mark_rule(strokeWidth=1.6).encode(
+        x=alt.X("Low:Q", title="ROI (%)",
+                axis=alt.Axis(format="+.0f", labelFontSize=11,
+                              titleFontSize=12, grid=True, gridOpacity=.2)),
+        x2="High:Q", y=y_enc, color=colour, tooltip=tip)
+    dots = alt.Chart(ci_df).mark_circle(size=22, opacity=1).encode(
+        x="ROI:Q", y=y_enc, color=colour, tooltip=tip)
+    marks = pd.DataFrame({"x": [cov.true_roi * 100, 0.0],
+                          "label": [f"True ROI {cov.true_roi:+.1%}",
+                                    "Break-even"]})
+    truth = alt.Chart(marks.iloc[[0]]).mark_rule(
+        color=GREEN, strokeWidth=2.5).encode(x="x:Q")
+    zero = alt.Chart(marks.iloc[[1]]).mark_rule(
+        color="#888", strokeDash=[4, 4], strokeWidth=1.5).encode(x="x:Q")
+    left_of_zero = cov.true_roi < 0
+    labels = (
+        alt.Chart(marks.iloc[[0]]).mark_text(
+            align="right" if left_of_zero else "left",
+            dx=-6 if left_of_zero else 6, dy=-8, fontSize=11,
+            fontWeight="bold", color=GREEN)
+        .encode(x="x:Q", y=alt.value(0), text="label:N")
+        + alt.Chart(marks.iloc[[1]]).mark_text(
+            align="left" if left_of_zero else "right",
+            dx=6 if left_of_zero else -6, dy=-8, fontSize=11, color="#666")
+        .encode(x="x:Q", y=alt.value(0), text="label:N")
+    )
+    st.altair_chart((whiskers + dots + truth + zero + labels)
+                    .properties(height=460).configure_view(strokeWidth=0),
+                    use_container_width=True)
+
+    if cov.true_roi <= 0 and above_zero:
+        verdict = (f"{above_zero} of them sit entirely above break-even: "
+                   f"losing bettors whose records pass as proven winners.")
+    elif cov.true_roi <= 0:
+        verdict = ("None clears break-even in this draw. Lower the confidence "
+                   "level or the bets per bettor and false winners appear.")
+    else:
+        verdict = (f"Only {above_zero} of these genuinely winning bettors "
+                   f"could prove it from their record at this sample size.")
+    st.info(
+        f"{caught} of these 100 intervals contain the true ROI. At "
+        f"{level_label} you'd expect about {level * 100:g}. Redraw and the "
+        f"count moves, but across thousands of bettors it settles on "
+        f"{level_label}. That long-run hit rate is the whole promise. "
+        f"{verdict}"
+    )
+
+    st.markdown("**The price of confidence**")
+    rows = []
+    for name, lvl in LEVELS.items():
+        zz = z_score(lvl)
+        w = zz * sigma / np.sqrt(n_ci)
+        need = int(np.ceil((zz * sigma / 0.02) ** 2))
+        rows.append({"Level": name, "z": f"{zz:.3f}",
+                     f"Width at {n_ci:,} bets": f"±{w:.1%}",
+                     "Bets to get within ±2%": f"{need:,}",
+                     "Misses, per 100": f"{(1 - lvl) * 100:g}"})
+    st.dataframe(pd.DataFrame(rows), hide_index=True,
+                 use_container_width=True)
+
+    st.markdown(f"""
+**What {level_label} means.** It describes the method, not any one
+interval. Apply this recipe to every possible record and {level_label} of
+the intervals contain the true ROI. Each individual interval either contains
+it or it doesn't, and you can't tell which from the inside.
+
+**What it doesn't mean.** It is not "a {level_label} chance the true ROI is
+in this range." Once a record is in, both the range and the truth are fixed.
+Putting a probability on the truth itself takes a prior, which is a
+different tool, a Bayesian credible interval.
+
+**The trade.** More confidence buys a wider range, never a better one.
+Moving from 95% to 99% widens every interval by about a third
+({z_score(0.99) / z_score(0.95):.2f}x). Fewer misses, less said.
+
+**What actually narrows it.** Only more data, and slowly. Width shrinks
+with the square root of the sample, so four times the bets halves it. A bet
+at -110 swings about {sigma:.2f} units either way, which is why pinning ROI to
+within ±2% at 95% takes roughly
+{int(np.ceil((z_score(0.95) * sigma / 0.02) ** 2)):,} bets. That's years of
+betting for most people, and the edge being measured is rarely that stable.
+""")
+    st.caption(
+        "Normal-approximation intervals using each bettor's own sample "
+        "standard deviation. With fewer than a few dozen bets a t or "
+        "bootstrap interval would be more accurate; the coverage count shows "
+        "how close this one gets."
+    )
+
+# ------------------------------------------------------------------ method
+with tabs[6]:
     st.subheader("Method")
     st.markdown(
         """
@@ -466,8 +618,8 @@ the margin.
 
 **Expected value** per unit staked is `p·(d − 1) − (1 − p)`.
 
-**Confidence interval** on a realised ROI is `±1.96σ/√n`. This is the
-formula the whole industry depends on you not knowing.
+**Confidence interval** on a realised ROI is `±z·σ/√n`, where z is 1.96
+at 95%. This is the formula the whole industry depends on you not knowing.
 
 #### Where this is wrong
 

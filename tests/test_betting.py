@@ -5,7 +5,8 @@ import pytest
 from betting import (american_to_decimal, analyse_bet, analyse_parlay,
                      decimal_to_american, hold, implied_probability,
                      kelly_stake, pickem_table, remove_vig,
-                     roi_confidence_interval, simulate_bankroll)
+                     interval_coverage, roi_confidence_interval,
+                     simulate_bankroll, z_score)
 
 
 class TestOddsConversion:
@@ -180,6 +181,55 @@ class TestConfidenceInterval:
         b = roi_confidence_interval(0.0, 1.0, 400)
         assert (a[1] - a[0]) / (b[1] - b[0]) == pytest.approx(2.0)
 
-    def test_unsupported_confidence_rejected(self):
+    @pytest.mark.parametrize("bad", [0.0, 1.0, 1.5, -0.95])
+    def test_impossible_confidence_rejected(self, bad):
         with pytest.raises(ValueError):
-            roi_confidence_interval(0.04, 1.0, 200, confidence=0.80)
+            roi_confidence_interval(0.04, 1.0, 200, confidence=bad)
+
+    def test_any_level_between_zero_and_one_works(self):
+        lo, hi = roi_confidence_interval(0.0, 1.0, 100, confidence=0.80)
+        assert hi == pytest.approx(1.2816 / 10, abs=1e-4)
+
+
+class TestZScore:
+    @pytest.mark.parametrize("level, z", [(0.80, 1.2816), (0.90, 1.6449),
+                                          (0.95, 1.9600), (0.99, 2.5758),
+                                          (0.999, 3.2905)])
+    def test_textbook_values(self, level, z):
+        assert z_score(level) == pytest.approx(z, abs=1e-4)
+
+    def test_more_confidence_means_wider(self):
+        levels = [0.80, 0.90, 0.95, 0.98, 0.99, 0.999]
+        zs = [z_score(c) for c in levels]
+        assert zs == sorted(zs)
+
+
+class TestIntervalCoverage:
+    """The definition of a confidence level, checked by brute force."""
+
+    @pytest.mark.parametrize("level", [0.80, 0.90, 0.95, 0.99])
+    def test_coverage_matches_the_label(self, level):
+        r = interval_coverage(0.5, 1.909, n_bets=400, confidence=level,
+                              n_bettors=4000, seed=11)
+        assert r.coverage == pytest.approx(level, abs=0.02)
+
+    def test_true_roi_at_minus_110_coin_flip(self):
+        r = interval_coverage(0.5, 1.909, n_bets=50, n_bettors=10, seed=1)
+        assert r.true_roi == pytest.approx(-0.0455, abs=1e-3)
+
+    def test_quadrupling_bets_halves_width(self):
+        a = interval_coverage(0.5, 1.909, 200, n_bettors=3000, seed=2)
+        b = interval_coverage(0.5, 1.909, 800, n_bettors=3000, seed=2)
+        ratio = (a.high - a.low).mean() / (b.high - b.low).mean()
+        assert ratio == pytest.approx(2.0, abs=0.05)
+
+    def test_same_seed_same_intervals(self):
+        a = interval_coverage(0.5, 1.909, 100, seed=5)
+        b = interval_coverage(0.5, 1.909, 100, seed=5)
+        assert (a.low == b.low).all()
+
+    def test_bad_inputs_rejected(self):
+        with pytest.raises(ValueError):
+            interval_coverage(1.2, 1.909, 100)
+        with pytest.raises(ValueError):
+            interval_coverage(0.5, 1.909, 1)

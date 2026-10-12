@@ -61,6 +61,12 @@ failures invisible. The app makes this concrete: upload a record and it
 shows you the distribution of results produced by pure noise over the same
 number of bets.
 
+The **Confidence intervals** tab shows what the interval itself promises.
+A hundred bettors share one true edge and each builds an interval from
+their own record. Pick a level from 80% to 99.9% and watch roughly that
+share catch the truth, and see what each extra point of confidence costs in
+width and in bets.
+
 ## Library
 
 | module | contents |
@@ -69,10 +75,10 @@ number of bets.
 | `ev` | expected value, edge, variance for a single wager |
 | `parlay` | parlays and pick'em entries, hold by leg count |
 | `cost` | annual and lifetime cost of a habit, survival curves |
-| `simulate` | Monte Carlo bankroll paths, ROI confidence intervals |
+| `simulate` | Monte Carlo bankroll paths, ROI confidence intervals at any level, coverage simulation |
 | `ledger` | parsing and analysis of an uploaded bet history |
 
-77 tests. Several encode facts rather than behaviour: that −110 implies
+96 tests. Several encode facts rather than behaviour: that −110 implies
 52.38%, that a confidence interval halves when the sample quadruples, that
 a six-leg pick'em keeps more than a lottery.
 

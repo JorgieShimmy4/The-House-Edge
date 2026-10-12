@@ -24,8 +24,8 @@ def test_app_runs_without_exceptions(app):
     assert not app.exception
 
 
-def test_all_six_tabs_render(app):
-    assert len(app.tabs) == 6
+def test_all_seven_tabs_render(app):
+    assert len(app.tabs) == 7
 
 
 def _unescaped_dollars(text: str) -> int:
@@ -42,3 +42,9 @@ def test_callouts_escape_dollar_signs(app, kind):
 def test_cost_callout_shows_dollar_amounts(app):
     text = app.error[0].value
     assert r"\$" in text
+
+
+def test_confidence_tab_reports_coverage(app):
+    labels = [m.label for m in app.metric]
+    assert "Caught the true ROI" in labels
+    assert "Multiplier (z)" in labels
