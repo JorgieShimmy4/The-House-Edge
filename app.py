@@ -13,7 +13,7 @@ import streamlit as st
 from betting import (american_to_decimal, analyse_bet, analyse_parlay, hold,
                      pickem_table, remove_vig, simulate_bankroll)
 from betting.cost import (PRODUCT_HOLD, compare_products, habit_cost,
-                          survival_curve)
+                          invested_value, survival_curve)
 from betting.ledger import parse_history, sample_history, summarise
 
 st.set_page_config(page_title="The House Edge", layout="wide",
@@ -107,47 +107,55 @@ with tabs[0]:
     d.metric("Over ten years", money(cost.ten_year_loss))
 
     st.error(md(
-        f"**{money(cost.ten_year_loss)} handed over in ten years.** The same "
-        f"money paid into a broad index fund instead would be worth about "
-        f"{money(cost.invested_10y)}. The difference between the two paths "
-        f"is **{money(cost.gap_10y)}**."
+        f"**{money(cost.ten_year_loss)} handed to the house in ten years.** "
+        f"Put into a broad index fund instead, that same money would have "
+        f"grown to about **{money(cost.invested_10y)}**."
     ))
 
     years = np.arange(0, 11)
-    monthly = weekly * 52 / 12
-    r = 0.07 / 12
-    invested = [monthly * (((1 + r) ** (12 * y) - 1) / r) if y else 0
-                for y in years]
+    lost = cost.annual_loss * years
+    grown = np.array([invested_value(cost.annual_loss / 12, y) for y in years])
+    LOST, GROWN = "Lost to the house", "That money, invested"
     paths = pd.DataFrame({
         "Year": np.tile(years, 2),
-        "Balance": list(invested) + [-cost.annual_loss * y for y in years],
-        "Path": ["Invested instead"] * 11 + ["Wagered away"] * 11,
+        "Amount": np.concatenate([grown, lost]),
+        "Path": [GROWN] * 11 + [LOST] * 11,
     })
-    st.altair_chart(
-        alt.Chart(paths).mark_line(strokeWidth=3).encode(
-            x=alt.X("Year:Q", title="Years from now",
-                    axis=alt.Axis(tickCount=11, labelFontSize=11,
-                                  titleFontSize=12, grid=True, gridOpacity=.25)),
-            y=alt.Y("Balance:Q", title="Balance",
-                    axis=alt.Axis(format="$,.0f", labelFontSize=11,
-                                  titleFontSize=12, grid=True, gridOpacity=.25)),
-            color=alt.Color("Path:N", title=None,
-                            scale=alt.Scale(domain=["Invested instead",
-                                                    "Wagered away"],
-                                            range=[GREEN, RED]),
-                            legend=alt.Legend(orient="top-left")),
-            tooltip=[alt.Tooltip("Path:N"), alt.Tooltip("Year:Q"),
-                     alt.Tooltip("Balance:Q", format="$,.0f")],
-        ).properties(height=340),
-        use_container_width=True,
-    )
+    band = pd.DataFrame({"Year": years, "low": lost, "high": grown})
 
-    st.caption(
-        "Investment growth assumes 7% annually, compounded monthly, which is "
-        "a conventional long-run figure for a broad equity index. Betting "
-        "losses assume you neither beat nor lose to the market beyond the "
-        "operator's cut, which is the best case, not the typical one."
+    x = alt.X("Year:Q", title="Years from now",
+              scale=alt.Scale(domain=[0, 10], nice=False),
+              axis=alt.Axis(tickCount=11, labelFontSize=11, titleFontSize=12,
+                            grid=False))
+    gap = alt.Chart(band).mark_area(color=GREEN, opacity=0.12).encode(
+        x=x, y="low:Q", y2="high:Q")
+    lines = alt.Chart(paths).mark_line(strokeWidth=3, point=alt.OverlayMarkDef(
+        size=28, filled=True)).encode(
+        x=x,
+        y=alt.Y("Amount:Q", title=None,
+                axis=alt.Axis(format="$,.0f", labelFontSize=11,
+                              grid=True, gridOpacity=.2, domain=False)),
+        color=alt.Color("Path:N", title=None,
+                        scale=alt.Scale(domain=[GROWN, LOST],
+                                        range=[GREEN, RED]),
+                        legend=alt.Legend(orient="top-left", labelFontSize=13,
+                                          symbolStrokeWidth=4)),
+        tooltip=[alt.Tooltip("Path:N", title=" "), alt.Tooltip("Year:Q"),
+                 alt.Tooltip("Amount:Q", format="$,.0f")],
     )
+    st.altair_chart((gap + lines).properties(height=340)
+                    .configure_view(strokeWidth=0),
+                    use_container_width=True)
+
+    st.caption(md(
+        f"The shaded gap is the growth you give up on top of the loss itself: "
+        f"{money(cost.growth_forgone_10y)} over ten years at this level. Only "
+        f"the money lost is compared, because the rest of what you wager "
+        f"comes back as winnings. Growth assumes 7% a year, compounded "
+        f"monthly, a conventional long-run figure for a broad equity index. "
+        f"Losses assume you do exactly as well as the market's prices imply, "
+        f"which is the best case, not the typical one."
+    ))
 
 # ------------------------------------------------------------- the products
 with tabs[1]:

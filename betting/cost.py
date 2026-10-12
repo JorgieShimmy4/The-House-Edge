@@ -33,12 +33,25 @@ class HabitCost:
     five_year_loss: float
     ten_year_loss: float
     invested_10y: float
-    gap_10y: float
+    growth_forgone_10y: float
+
+
+def invested_value(monthly: float, years: float,
+                   annual_return: float = 0.07) -> float:
+    """Value of a monthly contribution after `years`, compounded monthly."""
+    r = annual_return / 12.0
+    n = 12.0 * years
+    return monthly * (((1.0 + r) ** n - 1.0) / r) if r else monthly * n
 
 
 def habit_cost(weekly_stake: float, hold: float,
                annual_return: float = 0.07) -> HabitCost:
-    """Expected loss from a steady habit, against investing the same money.
+    """Expected loss from a steady habit, against investing that loss.
+
+    Only the money lost is compared. The rest of the handle comes back as
+    winnings and gets wagered again, so it was never really spent. Investing
+    the full handle and then adding the loss on top counts the same dollars
+    twice.
 
     The investment comparison uses a monthly annuity at annual_return,
     compounded monthly. Seven percent is a conventional long-run figure for
@@ -51,11 +64,7 @@ def habit_cost(weekly_stake: float, hold: float,
 
     annual_wagered = weekly_stake * 52.0
     annual_loss = annual_wagered * hold
-
-    monthly = weekly_stake * 52.0 / 12.0
-    r = annual_return / 12.0
-    n = 120
-    invested = monthly * (((1.0 + r) ** n - 1.0) / r) if r else monthly * n
+    invested = invested_value(annual_loss / 12.0, 10, annual_return)
 
     return HabitCost(
         weekly_stake=weekly_stake,
@@ -65,7 +74,7 @@ def habit_cost(weekly_stake: float, hold: float,
         five_year_loss=annual_loss * 5.0,
         ten_year_loss=annual_loss * 10.0,
         invested_10y=invested,
-        gap_10y=invested + annual_loss * 10.0,
+        growth_forgone_10y=invested - annual_loss * 10.0,
     )
 
 

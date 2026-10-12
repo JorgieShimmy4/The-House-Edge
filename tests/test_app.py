@@ -32,9 +32,9 @@ def _unescaped_dollars(text: str) -> int:
     return text.count("$") - text.count(r"\$")
 
 
-@pytest.mark.parametrize("kind", ["error", "warning", "info", "success"])
+@pytest.mark.parametrize("kind", ["error", "warning", "info", "success", "caption"])
 def test_callouts_escape_dollar_signs(app, kind):
-    """Two bare $ signs in one callout render as a LaTeX equation."""
+    """Two bare $ signs in one markdown element render as a LaTeX equation."""
     for element in getattr(app, kind):
         assert _unescaped_dollars(element.value) == 0, element.value
 

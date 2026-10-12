@@ -1,7 +1,7 @@
 import pytest
 
 from betting.cost import (PRODUCT_HOLD, compare_products, habit_cost,
-                          survival_curve)
+                          invested_value, survival_curve)
 
 
 class TestHabitCost:
@@ -19,18 +19,30 @@ class TestHabitCost:
         assert c.ten_year_loss == pytest.approx(c.annual_loss * 10)
 
     def test_zero_hold_costs_nothing(self):
+        """A bettor who loses nothing has nothing to have invested."""
         c = habit_cost(50, 0.0)
         assert c.annual_loss == pytest.approx(0.0)
-        assert c.gap_10y == pytest.approx(c.invested_10y)
+        assert c.invested_10y == pytest.approx(0.0)
+        assert c.growth_forgone_10y == pytest.approx(0.0)
 
-    def test_investment_beats_contributions(self):
+    def test_only_the_loss_is_invested(self):
+        """$975 a year lost, invested monthly at 7% for ten years."""
         c = habit_cost(50, 0.375)
-        contributed = 50 * 52 * 10
-        assert c.invested_10y > contributed
+        assert c.invested_10y == pytest.approx(14_063.14, abs=0.01)
 
-    def test_gap_combines_loss_and_foregone_growth(self):
+    def test_invested_loss_beats_the_loss_itself(self):
         c = habit_cost(50, 0.375)
-        assert c.gap_10y == pytest.approx(c.invested_10y + c.ten_year_loss)
+        assert c.invested_10y > c.ten_year_loss
+        assert c.growth_forgone_10y == pytest.approx(
+            c.invested_10y - c.ten_year_loss)
+
+    def test_invested_value_never_exceeds_whole_handle(self):
+        """Guards the old double count: the comparison can't outgrow the handle."""
+        c = habit_cost(50, 0.609)
+        assert c.invested_10y < invested_value(50 * 52 / 12, 10)
+
+    def test_zero_return_is_plain_sum(self):
+        assert invested_value(100, 10, annual_return=0.0) == pytest.approx(12_000)
 
     def test_worse_product_costs_more(self):
         cheap = habit_cost(50, PRODUCT_HOLD["Sportsbook side or total (-110)"])

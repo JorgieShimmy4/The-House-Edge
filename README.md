@@ -27,9 +27,8 @@ Someone wagering $50 a week on three-leg pick'em entries:
 | --- | --- |
 | Wagered per year | $2,600 |
 | Expected loss, year one | $975 |
-| Expected loss over ten years | $9,750 |
-| Same money in an index fund | $37,502 |
-| **Difference between the two paths** | **$47,252** |
+| **Expected loss over ten years** | **$9,750** |
+| That loss, invested in an index fund instead | $14,063 |
 
 With a $1,000 bankroll and five bets a week at that product, half of all
 bettors are broke within **eleven weeks**. None of them is unlucky. They are
@@ -73,7 +72,7 @@ number of bets.
 | `simulate` | Monte Carlo bankroll paths, ROI confidence intervals |
 | `ledger` | parsing and analysis of an uploaded bet history |
 
-67 tests. Several encode facts rather than behaviour: that −110 implies
+77 tests. Several encode facts rather than behaviour: that −110 implies
 52.38%, that a confidence interval halves when the sample quadruples, that
 a six-leg pick'em keeps more than a lottery.
 
