@@ -1,5 +1,7 @@
 # The House Edge
 
+[![tests](https://github.com/JorgieShimmy4/The-House-Edge/actions/workflows/tests.yml/badge.svg)](https://github.com/JorgieShimmy4/The-House-Edge/actions/workflows/tests.yml)
+
 Sports betting apps keep a fixed share of everything wagered through them.
 This works out how much, over how long, and whether anyone's winning record
 actually demonstrates skill.
