@@ -39,6 +39,15 @@ def money(x: float) -> str:
     return f"${x:,.0f}"
 
 
+def md(text: str) -> str:
+    """Escape dollar signs for any Streamlit call that renders markdown.
+
+    Streamlit reads text between two $ signs as LaTeX, so a sentence with
+    two dollar amounts in it turns into one long italic equation.
+    """
+    return text.replace("$", r"\$")
+
+
 AXIS = alt.Axis(labelFontSize=11, titleFontSize=12, grid=True, gridOpacity=0.25)
 NAVY, RED, GREEN = "#1f3b57", "#c0392b", "#27ae60"
 
@@ -97,12 +106,12 @@ with tabs[0]:
     c.metric("Over five years", money(cost.five_year_loss))
     d.metric("Over ten years", money(cost.ten_year_loss))
 
-    st.error(
+    st.error(md(
         f"**{money(cost.ten_year_loss)} handed over in ten years.** The same "
         f"money paid into a broad index fund instead would be worth about "
         f"{money(cost.invested_10y)}. The difference between the two paths "
         f"is **{money(cost.gap_10y)}**."
-    )
+    ))
 
     years = np.arange(0, 11)
     monthly = weekly * 52 / 12
@@ -306,12 +315,12 @@ with tabs[3]:
                 f"have simply not played enough hands to find out otherwise."
             )
         else:
-            st.warning(
+            st.warning(md(
                 f"Negative. You would have to be right "
                 f"{pct(r.breakeven_probability - prob, 2)} more often than you "
                 f"think, just to break even. Every ${100:.0f} wagered returns "
                 f"${100 * (1 + r.ev):.2f} on average."
-            )
+            ))
 
     st.divider()
     st.caption("The margin, made visible")
