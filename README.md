@@ -9,6 +9,8 @@ actually demonstrates skill.
 No picks. No affiliate links. No relationship with any operator. Nothing
 stored.
 
+**Live app:** [the-house-edge.streamlit.app](https://the-house-edge.streamlit.app)
+
 ## Run it
 
     pip install -r requirements.txt
